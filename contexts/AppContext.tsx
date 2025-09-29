@@ -2,7 +2,10 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, User, Task, DailyAssignment, CompletedTask, UserRole } from '../types';
-import { v4 as uuidv4 } from 'react-native-uuid';
+// Simple UUID generator for now
+const generateId = () => {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+};
 
 interface AppContextType {
   appState: AppState;
@@ -29,7 +32,7 @@ const defaultUser: User = {
 
 const defaultTasks: Task[] = [
   {
-    id: uuidv4(),
+    id: '1',
     title: 'Проверить оборудование',
     description: 'Убедиться, что все оборудование работает правильно',
     scheduledTime: '09:00',
@@ -37,7 +40,7 @@ const defaultTasks: Task[] = [
     isActive: false,
   },
   {
-    id: uuidv4(),
+    id: '2',
     title: 'Обновить отчеты',
     description: 'Подготовить ежедневные отчеты',
     scheduledTime: '14:00',
@@ -45,7 +48,7 @@ const defaultTasks: Task[] = [
     isActive: false,
   },
   {
-    id: uuidv4(),
+    id: '3',
     title: 'Проверить безопасность',
     description: 'Провести проверку безопасности',
     scheduledTime: '18:00',
@@ -164,7 +167,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!task) return;
 
     const completedTask: CompletedTask = {
-      id: uuidv4(),
+      id: generateId(),
       taskId: task.id,
       title: task.title,
       completedAt: new Date(),
@@ -189,7 +192,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addTask = (taskData: Omit<Task, 'id' | 'completed' | 'isActive'>) => {
     const newTask: Task = {
       ...taskData,
-      id: uuidv4(),
+      id: generateId(),
       completed: false,
       isActive: false,
     };

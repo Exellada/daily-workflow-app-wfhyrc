@@ -26,7 +26,7 @@ export default function TabLayout() {
         options={{
           title: i18n.t('checklist'),
           tabBarIcon: ({ color, size }) => (
-            <IconSymbol name="checklist" size={size} color={color} />
+            <IconSymbol name="list.bullet" size={size} color={color} />
           ),
         }}
       />

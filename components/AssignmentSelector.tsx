@@ -134,7 +134,7 @@ export const AssignmentSelector: React.FC = () => {
             <View style={styles.modalButtons}>
               <Button
                 onPress={() => setModalVisible(false)}
-                variant="secondary"
+                variant="outline"
                 style={styles.modalButton}
               >
                 {i18n.t('cancel')}

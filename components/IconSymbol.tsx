@@ -84,6 +84,7 @@ const MAPPING = {
   // System & Settings
   "gear": "settings",
   "gearshape.fill": "settings",
+  "gearshape": "settings",
   "slider.horizontal.3": "tune",
   "info.circle.fill": "info",
   "info.circle": "info-outlined",
@@ -100,6 +101,8 @@ const MAPPING = {
   "star": "star-border",
   "bookmark.fill": "bookmark",
   "bookmark": "bookmark-border",
+  "tray": "inbox",
+  "list.bullet": "format-list-bulleted",
 
   // Technology & Code
   "chevron.left.forwardslash.chevron.right": "code",
@@ -140,6 +143,7 @@ const MAPPING = {
   "person.2": "group",
   "person.crop.circle.fill": "account-circle",
   "person.crop.circle": "account-circle",
+  "person.circle": "account-circle",
 
   // Sharing & Export
   "square.and.arrow.up": "share",

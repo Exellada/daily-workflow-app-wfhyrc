@@ -153,7 +153,7 @@ export const TaskEditor: React.FC<TaskEditorProps> = ({
             {task && onDelete && (
               <Button
                 onPress={handleDelete}
-                variant="secondary"
+                variant="outline"
                 style={styles.deleteButton}
               >
                 {i18n.t('delete')}
@@ -240,6 +240,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
   },
   deleteButton: {
-    backgroundColor: colors.secondary,
+    borderColor: colors.accent,
   },
 });
