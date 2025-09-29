@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Dimensions } from 'react-native';
 import { useApp } from '@/contexts/AppContext';
 import { TaskItem } from '@/components/TaskItem';
@@ -34,7 +34,6 @@ export default function ChecklistScreen() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showActiveOnly, setShowActiveOnly] = useState(true);
 
-  // Update current time every minute
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(new Date());
@@ -42,16 +41,11 @@ export default function ChecklistScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // Show login screen if not authenticated
-  if (!appState.isAuthenticated) {
-    return <LoginScreen />;
-  }
+  const activeTasks = useMemo(() => getCurrentActiveTasks(), [getCurrentActiveTasks]);
+  const canEdit = useMemo(() => appState.currentUser.role === 'admin', [appState.currentUser.role]);
+  const canComplete = useMemo(() => appState.currentUser.role !== 'viewer', [appState.currentUser.role]);
 
-  const activeTasks = getCurrentActiveTasks();
-  const canEdit = appState.currentUser.role === 'admin';
-  const canComplete = appState.currentUser.role !== 'viewer';
-
-  const handleCompleteTask = async (taskId: string) => {
+  const handleCompleteTask = useCallback(async (taskId: string) => {
     if (!canUserCompleteTask(taskId)) {
       Alert.alert('Нет доступа', 'У вас нет прав для выполнения этой задачи');
       return;
@@ -59,27 +53,27 @@ export default function ChecklistScreen() {
     
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     completeTask(taskId);
-  };
+  }, [canUserCompleteTask, completeTask]);
 
-  const handleEditTask = (task: Task) => {
+  const handleEditTask = useCallback((task: Task) => {
     if (!canEdit) {
       Alert.alert(i18n.t('noPermission'), i18n.t('adminOnly'));
       return;
     }
     setEditingTask(task);
     setEditorVisible(true);
-  };
+  }, [canEdit]);
 
-  const handleAddTask = () => {
+  const handleAddTask = useCallback(() => {
     if (!canEdit) {
       Alert.alert(i18n.t('noPermission'), i18n.t('adminOnly'));
       return;
     }
     setEditingTask(undefined);
     setEditorVisible(true);
-  };
+  }, [canEdit]);
 
-  const handleSaveTask = (taskData: Omit<Task, 'id' | 'completed' | 'isActive'>) => {
+  const handleSaveTask = useCallback((taskData: Omit<Task, 'id' | 'completed' | 'isActive'>) => {
     if (editingTask) {
       updateTask(editingTask.id, taskData);
     } else {
@@ -87,9 +81,9 @@ export default function ChecklistScreen() {
     }
     setEditorVisible(false);
     setEditingTask(undefined);
-  };
+  }, [editingTask, updateTask, addTask]);
 
-  const handleDeleteTask = (taskId: string) => {
+  const handleDeleteTask = useCallback((taskId: string) => {
     Alert.alert(
       i18n.t('delete'),
       'Вы уверены, что хотите удалить эту задачу?',
@@ -106,9 +100,9 @@ export default function ChecklistScreen() {
         },
       ]
     );
-  };
+  }, [deleteTask]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     Alert.alert(
       'Выйти из системы',
       'Вы уверены, что хотите выйти?',
@@ -117,16 +111,22 @@ export default function ChecklistScreen() {
         { text: 'Выйти', style: 'destructive', onPress: logout },
       ]
     );
-  };
+  }, [logout]);
 
-  const formatCurrentTime = () => {
+  const formatCurrentTime = useCallback(() => {
     return currentTime.toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
+  }, [currentTime]);
 
-  const tasksToShow = showActiveOnly ? activeTasks : appState.tasks;
+  const tasksToShow = useMemo(() => 
+    showActiveOnly ? activeTasks : appState.tasks
+  , [showActiveOnly, activeTasks, appState.tasks]);
+
+  if (!appState.isAuthenticated) {
+    return <LoginScreen />;
+  }
 
   if (loading) {
     return (

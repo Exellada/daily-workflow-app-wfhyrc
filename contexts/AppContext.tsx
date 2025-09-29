@@ -1,9 +1,8 @@
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, User, Task, DailyAssignment, CompletedTask, UserRole } from '../types';
 
-// Simple UUID generator for now
 const generateId = () => {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
 };
@@ -18,13 +17,13 @@ interface AppContextType {
   setDailyAssignment: (assignment: DailyAssignment) => void;
   switchUserRole: (role: UserRole) => void;
   getCurrentActiveTasks: () => Task[];
-  // User management
   addUser: (name: string, password: string, role: UserRole) => Promise<boolean>;
   authenticateUser: (name: string, password: string) => Promise<boolean>;
   logout: () => void;
   deleteUser: (userId: string) => void;
   updateUser: (userId: string, updates: Partial<User>) => void;
   canUserCompleteTask: (taskId: string) => boolean;
+  getResponsibleUsers: () => User[];
   loading: boolean;
 }
 
@@ -86,53 +85,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
   const [loading, setLoading] = useState(true);
 
-  // Load data from storage
-  useEffect(() => {
-    loadAppState();
+  const saveAppState = useCallback(async (newState: AppState) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
+    } catch (error) {
+      console.log('Error saving app state:', error);
+    }
   }, []);
 
-  // Auto-reset at 23:00
-  useEffect(() => {
-    const checkReset = () => {
-      const now = new Date();
-      const today = getTodayString();
-      
-      if (now.getHours() >= 23 && appState.lastResetDate !== today) {
-        console.log('Resetting checklist for new day');
-        resetDailyTasks();
-      }
-    };
-
-    const interval = setInterval(checkReset, 60000); // Check every minute
-    return () => clearInterval(interval);
-  }, [appState.lastResetDate]);
-
-  // Update active tasks based on current time
-  useEffect(() => {
-    const updateActiveTasks = () => {
-      const now = new Date();
-      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      
-      setAppState(prev => ({
-        ...prev,
-        tasks: prev.tasks.map(task => ({
-          ...task,
-          isActive: !task.completed && task.scheduledTime <= currentTime,
-        })),
-      }));
-    };
-
-    updateActiveTasks();
-    const interval = setInterval(updateActiveTasks, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadAppState = async () => {
+  const loadAppState = useCallback(async () => {
     try {
       const stored = await AsyncStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsedState = JSON.parse(stored);
-        // Convert date strings back to Date objects
         parsedState.completedTasks = parsedState.completedTasks.map((task: any) => ({
           ...task,
           completedAt: new Date(task.completedAt),
@@ -148,17 +113,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const saveAppState = async (newState: AppState) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
-    } catch (error) {
-      console.log('Error saving app state:', error);
-    }
-  };
+  useEffect(() => {
+    loadAppState();
+  }, [loadAppState]);
 
-  const resetDailyTasks = () => {
+  useEffect(() => {
+    const checkReset = () => {
+      const now = new Date();
+      const today = getTodayString();
+      
+      if (now.getHours() >= 23 && appState.lastResetDate !== today) {
+        console.log('Resetting checklist for new day');
+        resetDailyTasks();
+      }
+    };
+
+    const interval = setInterval(checkReset, 60000);
+    return () => clearInterval(interval);
+  }, [appState.lastResetDate]);
+
+  useEffect(() => {
+    const updateActiveTasks = () => {
+      const now = new Date();
+      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      
+      setAppState(prev => ({
+        ...prev,
+        tasks: prev.tasks.map(task => ({
+          ...task,
+          isActive: !task.completed && task.scheduledTime <= currentTime,
+        })),
+      }));
+    };
+
+    updateActiveTasks();
+    const interval = setInterval(updateActiveTasks, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const resetDailyTasks = useCallback(() => {
     const today = getTodayString();
     const newState = {
       ...appState,
@@ -173,31 +168,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const updateTasks = (tasks: Task[]) => {
+  const updateTasks = useCallback((tasks: Task[]) => {
     const newState = { ...appState, tasks };
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const canUserCompleteTask = (taskId: string): boolean => {
+  const canUserCompleteTask = useCallback((taskId: string): boolean => {
     const task = appState.tasks.find(t => t.id === taskId);
     if (!task) return false;
     
-    // Admin can complete any task
     if (appState.currentUser.role === 'admin') return true;
+    if (appState.currentUser.role === 'viewer') return false;
     
-    // If no specific users assigned, any authenticated user can complete
     if (!task.assignedUsers || task.assignedUsers.length === 0) {
-      return appState.currentUser.role !== 'viewer';
+      return true;
     }
     
-    // Check if current user is assigned to this task
     return task.assignedUsers.includes(appState.currentUser.id);
-  };
+  }, [appState.tasks, appState.currentUser]);
 
-  const completeTask = (taskId: string) => {
+  const completeTask = useCallback((taskId: string) => {
     const task = appState.tasks.find(t => t.id === taskId);
     if (!task || !canUserCompleteTask(taskId)) {
       console.log('User cannot complete this task');
@@ -231,9 +224,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, canUserCompleteTask, saveAppState]);
 
-  const addTask = (taskData: Omit<Task, 'id' | 'completed' | 'isActive'>) => {
+  const addTask = useCallback((taskData: Omit<Task, 'id' | 'completed' | 'isActive'>) => {
     const newTask: Task = {
       ...taskData,
       id: generateId(),
@@ -249,9 +242,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const updateTask = (taskId: string, updates: Partial<Task>) => {
+  const updateTask = useCallback((taskId: string, updates: Partial<Task>) => {
     const newState = {
       ...appState,
       tasks: appState.tasks.map(t =>
@@ -261,9 +254,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const deleteTask = (taskId: string) => {
+  const deleteTask = useCallback((taskId: string) => {
     const newState = {
       ...appState,
       tasks: appState.tasks.filter(t => t.id !== taskId),
@@ -271,9 +264,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const setDailyAssignment = (assignment: DailyAssignment) => {
+  const setDailyAssignment = useCallback((assignment: DailyAssignment) => {
     const existingIndex = appState.dailyAssignments.findIndex(
       a => a.date === assignment.date
     );
@@ -293,9 +286,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const switchUserRole = (role: UserRole) => {
+  const switchUserRole = useCallback((role: UserRole) => {
     const roleNames = {
       admin: 'Администратор',
       user: 'Пользователь',
@@ -313,11 +306,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const addUser = async (name: string, password: string, role: UserRole): Promise<boolean> => {
+  const addUser = useCallback(async (name: string, password: string, role: UserRole): Promise<boolean> => {
     try {
-      // Check if user already exists
       const existingUser = appState.users.find(u => u.name.toLowerCase() === name.toLowerCase());
       if (existingUser) {
         console.log('User already exists');
@@ -344,9 +336,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.log('Error adding user:', error);
       return false;
     }
-  };
+  }, [appState, saveAppState]);
 
-  const authenticateUser = async (name: string, password: string): Promise<boolean> => {
+  const authenticateUser = useCallback(async (name: string, password: string): Promise<boolean> => {
     try {
       const user = appState.users.find(u => 
         u.name.toLowerCase() === name.toLowerCase() && u.password === password
@@ -367,9 +359,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.log('Error authenticating user:', error);
       return false;
     }
-  };
+  }, [appState, saveAppState]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     const newState = {
       ...appState,
       currentUser: defaultAdminUser,
@@ -377,10 +369,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const deleteUser = (userId: string) => {
-    if (userId === '1') return; // Cannot delete default admin
+  const deleteUser = useCallback((userId: string) => {
+    if (userId === '1') return;
 
     const newState = {
       ...appState,
@@ -389,9 +381,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const updateUser = (userId: string, updates: Partial<User>) => {
+  const updateUser = useCallback((userId: string, updates: Partial<User>) => {
     const newState = {
       ...appState,
       users: appState.users.map(u =>
@@ -401,33 +393,56 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setAppState(newState);
     saveAppState(newState);
-  };
+  }, [appState, saveAppState]);
 
-  const getCurrentActiveTasks = (): Task[] => {
+  const getCurrentActiveTasks = useCallback((): Task[] => {
     return appState.tasks.filter(task => task.isActive && !task.completed);
-  };
+  }, [appState.tasks]);
+
+  const getResponsibleUsers = useCallback((): User[] => {
+    return appState.users.filter(user => user.role !== 'viewer');
+  }, [appState.users]);
+
+  const contextValue = useMemo(() => ({
+    appState,
+    updateTasks,
+    completeTask,
+    addTask,
+    updateTask,
+    deleteTask,
+    setDailyAssignment,
+    switchUserRole,
+    getCurrentActiveTasks,
+    addUser,
+    authenticateUser,
+    logout,
+    deleteUser,
+    updateUser,
+    canUserCompleteTask,
+    getResponsibleUsers,
+    loading,
+  }), [
+    appState,
+    updateTasks,
+    completeTask,
+    addTask,
+    updateTask,
+    deleteTask,
+    setDailyAssignment,
+    switchUserRole,
+    getCurrentActiveTasks,
+    addUser,
+    authenticateUser,
+    logout,
+    deleteUser,
+    updateUser,
+    canUserCompleteTask,
+    getResponsibleUsers,
+    loading,
+  ]);
 
   return (
-    <AppContext.Provider
-      value={{
-        appState,
-        updateTasks,
-        completeTask,
-        addTask,
-        updateTask,
-        deleteTask,
-        setDailyAssignment,
-        switchUserRole,
-        getCurrentActiveTasks,
-        addUser,
-        authenticateUser,
-        logout,
-        deleteUser,
-        updateUser,
-        canUserCompleteTask,
-        loading,
-      }}
-    >
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );

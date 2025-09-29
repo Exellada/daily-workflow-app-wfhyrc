@@ -12,6 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export default function SettingsScreen() {
   const { appState, logout } = useApp();
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [showDeveloperMode, setShowDeveloperMode] = useState(false);
 
   const handleClearData = () => {
     Alert.alert(
@@ -47,6 +48,20 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleDeveloperAccess = () => {
+    Alert.alert(
+      'Режим разработчика',
+      'Вы входите в режим разработчика. Здесь доступны дополнительные функции для отладки и тестирования.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        { 
+          text: 'Войти', 
+          onPress: () => setShowDeveloperMode(true)
+        },
+      ]
+    );
+  };
+
   const SettingItem: React.FC<{
     icon: string;
     title: string;
@@ -54,18 +69,33 @@ export default function SettingsScreen() {
     onPress?: () => void;
     rightElement?: React.ReactNode;
     danger?: boolean;
-  }> = ({ icon, title, subtitle, onPress, rightElement, danger = false }) => (
-    <Pressable style={styles.settingItem} onPress={onPress}>
+    developer?: boolean;
+  }> = ({ icon, title, subtitle, onPress, rightElement, danger = false, developer = false }) => (
+    <Pressable 
+      style={[
+        styles.settingItem, 
+        developer && styles.developerItem
+      ]} 
+      onPress={onPress}
+    >
       <View style={styles.settingLeft}>
-        <View style={[styles.iconContainer, danger && styles.dangerIconContainer]}>
+        <View style={[
+          styles.iconContainer, 
+          danger && styles.dangerIconContainer,
+          developer && styles.developerIconContainer
+        ]}>
           <IconSymbol 
             name={icon as any} 
             size={20} 
-            color={danger ? '#FF5252' : colors.text} 
+            color={danger ? '#FF5252' : developer ? '#9C27B0' : colors.text} 
           />
         </View>
         <View style={styles.settingText}>
-          <Text style={[styles.settingTitle, danger && styles.dangerText]}>
+          <Text style={[
+            styles.settingTitle, 
+            danger && styles.dangerText,
+            developer && styles.developerText
+          ]}>
             {title}
           </Text>
           {subtitle && (
@@ -153,6 +183,18 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Разработка</Text>
+          
+          <SettingItem
+            icon="hammer"
+            title="Режим разработчика"
+            subtitle="Доступ к функциям отладки и тестирования"
+            onPress={handleDeveloperAccess}
+            developer
+          />
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionTitle}>Информация</Text>
           
           <SettingItem
@@ -205,9 +247,43 @@ export default function SettingsScreen() {
         visible={showUserManagement}
         onClose={() => setShowUserManagement(false)}
       />
+
+      {showDeveloperMode && (
+        <DeveloperPanel
+          visible={showDeveloperMode}
+          onClose={() => setShowDeveloperMode(false)}
+        />
+      )}
     </View>
   );
 }
+
+const DeveloperPanel: React.FC<{
+  visible: boolean;
+  onClose: () => void;
+}> = ({ visible, onClose }) => {
+  const { appState } = useApp();
+
+  return (
+    <View style={styles.developerPanel}>
+      <View style={styles.developerHeader}>
+        <Text style={styles.developerTitle}>Режим разработчика</Text>
+        <Pressable style={styles.closeButton} onPress={onClose}>
+          <IconSymbol name="xmark" size={24} color={colors.text} />
+        </Pressable>
+      </View>
+      
+      <ScrollView style={styles.developerContent}>
+        <View style={styles.debugSection}>
+          <Text style={styles.debugTitle}>Состояние приложения</Text>
+          <Text style={styles.debugText}>
+            {JSON.stringify(appState, null, 2)}
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -245,6 +321,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.grey + '20',
   },
+  developerItem: {
+    backgroundColor: '#9C27B0' + '05',
+    borderLeftWidth: 3,
+    borderLeftColor: '#9C27B0',
+  },
   settingLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -262,6 +343,9 @@ const styles = StyleSheet.create({
   dangerIconContainer: {
     backgroundColor: '#FF5252' + '20',
   },
+  developerIconContainer: {
+    backgroundColor: '#9C27B0' + '20',
+  },
   settingText: {
     flex: 1,
   },
@@ -272,6 +356,9 @@ const styles = StyleSheet.create({
   },
   dangerText: {
     color: '#FF5252',
+  },
+  developerText: {
+    color: '#9C27B0',
   },
   settingSubtitle: {
     fontSize: 14,
@@ -289,5 +376,53 @@ const styles = StyleSheet.create({
     opacity: 0.5,
     textAlign: 'center',
     marginBottom: 4,
+  },
+  developerPanel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.background,
+    zIndex: 1000,
+  },
+  developerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.grey + '20',
+  },
+  developerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#9C27B0',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  developerContent: {
+    flex: 1,
+    padding: 20,
+  },
+  debugSection: {
+    backgroundColor: colors.backgroundAlt,
+    borderRadius: 8,
+    padding: 16,
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  debugText: {
+    fontSize: 12,
+    color: colors.text,
+    fontFamily: 'monospace',
+    lineHeight: 16,
   },
 });
