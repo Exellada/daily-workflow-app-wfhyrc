@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, User, Task, DailyAssignment, CompletedTask, UserRole } from '../types';
+
 // Simple UUID generator for now
 const generateId = () => {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
@@ -17,6 +18,13 @@ interface AppContextType {
   setDailyAssignment: (assignment: DailyAssignment) => void;
   switchUserRole: (role: UserRole) => void;
   getCurrentActiveTasks: () => Task[];
+  // User management
+  addUser: (name: string, password: string, role: UserRole) => Promise<boolean>;
+  authenticateUser: (name: string, password: string) => Promise<boolean>;
+  logout: () => void;
+  deleteUser: (userId: string) => void;
+  updateUser: (userId: string, updates: Partial<User>) => void;
+  canUserCompleteTask: (taskId: string) => boolean;
   loading: boolean;
 }
 
@@ -24,10 +32,12 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'workflow_app_state';
 
-const defaultUser: User = {
+const defaultAdminUser: User = {
   id: '1',
   name: 'Администратор',
+  password: 'admin123',
   role: 'admin',
+  createdAt: new Date(),
 };
 
 const defaultTasks: Task[] = [
@@ -38,6 +48,7 @@ const defaultTasks: Task[] = [
     scheduledTime: '09:00',
     completed: false,
     isActive: false,
+    assignedUsers: [],
   },
   {
     id: '2',
@@ -46,6 +57,7 @@ const defaultTasks: Task[] = [
     scheduledTime: '14:00',
     completed: false,
     isActive: false,
+    assignedUsers: [],
   },
   {
     id: '3',
@@ -54,6 +66,7 @@ const defaultTasks: Task[] = [
     scheduledTime: '18:00',
     completed: false,
     isActive: false,
+    assignedUsers: [],
   },
 ];
 
@@ -63,11 +76,13 @@ const getTodayString = () => {
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [appState, setAppState] = useState<AppState>({
-    currentUser: defaultUser,
+    currentUser: defaultAdminUser,
+    users: [defaultAdminUser],
     tasks: defaultTasks,
     dailyAssignments: [],
     completedTasks: [],
     lastResetDate: getTodayString(),
+    isAuthenticated: false,
   });
   const [loading, setLoading] = useState(true);
 
@@ -122,6 +137,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           ...task,
           completedAt: new Date(task.completedAt),
         }));
+        parsedState.users = parsedState.users.map((user: any) => ({
+          ...user,
+          createdAt: new Date(user.createdAt),
+        }));
         setAppState(parsedState);
       }
     } catch (error) {
@@ -162,9 +181,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     saveAppState(newState);
   };
 
+  const canUserCompleteTask = (taskId: string): boolean => {
+    const task = appState.tasks.find(t => t.id === taskId);
+    if (!task) return false;
+    
+    // Admin can complete any task
+    if (appState.currentUser.role === 'admin') return true;
+    
+    // If no specific users assigned, any authenticated user can complete
+    if (!task.assignedUsers || task.assignedUsers.length === 0) {
+      return appState.currentUser.role !== 'viewer';
+    }
+    
+    // Check if current user is assigned to this task
+    return task.assignedUsers.includes(appState.currentUser.id);
+  };
+
   const completeTask = (taskId: string) => {
     const task = appState.tasks.find(t => t.id === taskId);
-    if (!task) return;
+    if (!task || !canUserCompleteTask(taskId)) {
+      console.log('User cannot complete this task');
+      return;
+    }
 
     const completedTask: CompletedTask = {
       id: generateId(),
@@ -172,6 +210,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       title: task.title,
       completedAt: new Date(),
       completedBy: appState.currentUser.name,
+      completedByUserId: appState.currentUser.id,
       date: getTodayString(),
     };
 
@@ -179,7 +218,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ...appState,
       tasks: appState.tasks.map(t =>
         t.id === taskId
-          ? { ...t, completed: true, completedAt: new Date(), completedBy: appState.currentUser.name }
+          ? { 
+              ...t, 
+              completed: true, 
+              completedAt: new Date(), 
+              completedBy: appState.currentUser.name 
+            }
           : t
       ),
       completedTasks: [...appState.completedTasks, completedTask],
@@ -195,6 +239,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: generateId(),
       completed: false,
       isActive: false,
+      assignedUsers: taskData.assignedUsers || [],
     };
 
     const newState = {
@@ -270,6 +315,94 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     saveAppState(newState);
   };
 
+  const addUser = async (name: string, password: string, role: UserRole): Promise<boolean> => {
+    try {
+      // Check if user already exists
+      const existingUser = appState.users.find(u => u.name.toLowerCase() === name.toLowerCase());
+      if (existingUser) {
+        console.log('User already exists');
+        return false;
+      }
+
+      const newUser: User = {
+        id: generateId(),
+        name,
+        password,
+        role,
+        createdAt: new Date(),
+      };
+
+      const newState = {
+        ...appState,
+        users: [...appState.users, newUser],
+      };
+
+      setAppState(newState);
+      await saveAppState(newState);
+      return true;
+    } catch (error) {
+      console.log('Error adding user:', error);
+      return false;
+    }
+  };
+
+  const authenticateUser = async (name: string, password: string): Promise<boolean> => {
+    try {
+      const user = appState.users.find(u => 
+        u.name.toLowerCase() === name.toLowerCase() && u.password === password
+      );
+
+      if (user) {
+        const newState = {
+          ...appState,
+          currentUser: user,
+          isAuthenticated: true,
+        };
+        setAppState(newState);
+        await saveAppState(newState);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.log('Error authenticating user:', error);
+      return false;
+    }
+  };
+
+  const logout = () => {
+    const newState = {
+      ...appState,
+      currentUser: defaultAdminUser,
+      isAuthenticated: false,
+    };
+    setAppState(newState);
+    saveAppState(newState);
+  };
+
+  const deleteUser = (userId: string) => {
+    if (userId === '1') return; // Cannot delete default admin
+
+    const newState = {
+      ...appState,
+      users: appState.users.filter(u => u.id !== userId),
+    };
+
+    setAppState(newState);
+    saveAppState(newState);
+  };
+
+  const updateUser = (userId: string, updates: Partial<User>) => {
+    const newState = {
+      ...appState,
+      users: appState.users.map(u =>
+        u.id === userId ? { ...u, ...updates } : u
+      ),
+    };
+
+    setAppState(newState);
+    saveAppState(newState);
+  };
+
   const getCurrentActiveTasks = (): Task[] => {
     return appState.tasks.filter(task => task.isActive && !task.completed);
   };
@@ -286,6 +419,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setDailyAssignment,
         switchUserRole,
         getCurrentActiveTasks,
+        addUser,
+        authenticateUser,
+        logout,
+        deleteUser,
+        updateUser,
+        canUserCompleteTask,
         loading,
       }}
     >

@@ -1,16 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Dimensions } from 'react-native';
 import { useApp } from '@/contexts/AppContext';
 import { TaskItem } from '@/components/TaskItem';
 import { TaskEditor } from '@/components/TaskEditor';
 import { AssignmentSelector } from '@/components/AssignmentSelector';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
+import { LoginScreen } from '@/components/LoginScreen';
 import { Task } from '@/types';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
+import Button from '@/components/button';
 import i18n from '@/localization';
 import * as Haptics from 'expo-haptics';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 export default function ChecklistScreen() {
   const {
@@ -20,12 +24,15 @@ export default function ChecklistScreen() {
     updateTask,
     deleteTask,
     getCurrentActiveTasks,
+    canUserCompleteTask,
+    logout,
     loading,
   } = useApp();
 
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [showActiveOnly, setShowActiveOnly] = useState(true);
 
   // Update current time every minute
   useEffect(() => {
@@ -35,10 +42,21 @@ export default function ChecklistScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  // Show login screen if not authenticated
+  if (!appState.isAuthenticated) {
+    return <LoginScreen />;
+  }
+
   const activeTasks = getCurrentActiveTasks();
   const canEdit = appState.currentUser.role === 'admin';
+  const canComplete = appState.currentUser.role !== 'viewer';
 
   const handleCompleteTask = async (taskId: string) => {
+    if (!canUserCompleteTask(taskId)) {
+      Alert.alert('Нет доступа', 'У вас нет прав для выполнения этой задачи');
+      return;
+    }
+    
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     completeTask(taskId);
   };
@@ -90,12 +108,25 @@ export default function ChecklistScreen() {
     );
   };
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Выйти из системы',
+      'Вы уверены, что хотите выйти?',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        { text: 'Выйти', style: 'destructive', onPress: logout },
+      ]
+    );
+  };
+
   const formatCurrentTime = () => {
     return currentTime.toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
     });
   };
+
+  const tasksToShow = showActiveOnly ? activeTasks : appState.tasks;
 
   if (loading) {
     return (
@@ -107,10 +138,14 @@ export default function ChecklistScreen() {
 
   return (
     <View style={commonStyles.wrapper}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.container} 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <View>
+            <View style={styles.timeContainer}>
               <Text style={styles.timeText}>{formatCurrentTime()}</Text>
               <Text style={styles.dateText}>
                 {new Date().toLocaleDateString('ru-RU', {
@@ -121,12 +156,22 @@ export default function ChecklistScreen() {
                 })}
               </Text>
             </View>
-            <RoleSwitcher />
+            <View style={styles.headerControls}>
+              <RoleSwitcher />
+              <Pressable style={styles.logoutButton} onPress={handleLogout}>
+                <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color={colors.text} />
+              </Pressable>
+            </View>
           </View>
 
-          <Text style={styles.resetInfo}>
-            {i18n.t('resetAtMidnight')}
-          </Text>
+          <View style={styles.userInfo}>
+            <Text style={styles.currentUser}>
+              Вошел как: {appState.currentUser.name}
+            </Text>
+            <Text style={styles.resetInfo}>
+              {i18n.t('resetAtMidnight')}
+            </Text>
+          </View>
         </View>
 
         <AssignmentSelector />
@@ -134,48 +179,69 @@ export default function ChecklistScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              Активные задачи ({activeTasks.length})
+              {showActiveOnly ? `Активные задачи (${activeTasks.length})` : `Все задачи (${appState.tasks.length})`}
             </Text>
-            {canEdit && (
-              <Pressable style={styles.addButton} onPress={handleAddTask}>
-                <IconSymbol name="plus" size={20} color={colors.background} />
-              </Pressable>
-            )}
+            <View style={styles.headerButtons}>
+              <Button
+                onPress={() => setShowActiveOnly(!showActiveOnly)}
+                variant="outline"
+                size="sm"
+                style={styles.toggleButton}
+              >
+                {showActiveOnly ? 'Все' : 'Активные'}
+              </Button>
+              {canEdit && (
+                <Button
+                  onPress={handleAddTask}
+                  size="sm"
+                  style={styles.addButton}
+                >
+                  <IconSymbol name="plus" size={16} color={colors.background} />
+                </Button>
+              )}
+            </View>
           </View>
 
-          {activeTasks.length > 0 ? (
-            activeTasks.map(task => (
-              <TaskItem
-                key={task.id}
-                task={task}
-                onComplete={handleCompleteTask}
-                onEdit={canEdit ? handleEditTask : undefined}
-                canEdit={canEdit}
-              />
-            ))
+          {tasksToShow.length > 0 ? (
+            <View style={styles.tasksList}>
+              {tasksToShow.map(task => (
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onComplete={canComplete ? handleCompleteTask : undefined}
+                  onEdit={canEdit ? handleEditTask : undefined}
+                  canEdit={canEdit}
+                  canComplete={canUserCompleteTask(task.id)}
+                />
+              ))}
+            </View>
           ) : (
             <View style={styles.emptyState}>
-              <IconSymbol name="checkmark.circle" size={48} color={colors.accent} />
+              <IconSymbol 
+                name={showActiveOnly ? "clock" : "checkmark.circle"} 
+                size={48} 
+                color={colors.accent} 
+              />
               <Text style={styles.emptyText}>
-                {appState.tasks.some(t => !t.completed)
-                  ? 'Ожидание активных задач...'
-                  : 'Все задачи выполнены!'}
+                {showActiveOnly 
+                  ? (appState.tasks.some(t => !t.completed)
+                      ? 'Ожидание активных задач...'
+                      : 'Все задачи выполнены!')
+                  : 'Нет задач'
+                }
               </Text>
+              {showActiveOnly && activeTasks.length === 0 && appState.tasks.some(t => !t.completed) && (
+                <Button
+                  onPress={() => setShowActiveOnly(false)}
+                  variant="outline"
+                  size="sm"
+                  style={styles.viewAllButton}
+                >
+                  Посмотреть все задачи
+                </Button>
+              )}
             </View>
           )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Все задачи</Text>
-          {appState.tasks.map(task => (
-            <TaskItem
-              key={task.id}
-              task={task}
-              onComplete={handleCompleteTask}
-              onEdit={canEdit ? handleEditTask : undefined}
-              canEdit={canEdit}
-            />
-          ))}
         </View>
       </ScrollView>
 
@@ -198,13 +264,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  scrollContent: {
+    paddingBottom: 20,
+  },
   loadingContainer: {
     justifyContent: 'center',
     alignItems: 'center',
   },
   header: {
-    padding: 20,
-    paddingBottom: 10,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
   },
   headerTop: {
     flexDirection: 'row',
@@ -212,48 +282,85 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
+  timeContainer: {
+    flex: 1,
+  },
   timeText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     color: colors.text,
   },
   dateText: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.text,
     opacity: 0.8,
     textTransform: 'capitalize',
+    marginTop: 2,
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoutButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: colors.backgroundAlt,
+  },
+  userInfo: {
+    marginTop: 8,
+  },
+  currentUser: {
+    fontSize: 14,
+    color: colors.accent,
+    fontWeight: '500',
   },
   resetInfo: {
     fontSize: 12,
-    color: colors.accent,
+    color: colors.text,
+    opacity: 0.6,
     fontStyle: 'italic',
+    marginTop: 2,
   },
   section: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 20,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
+    flex: 1,
+    minWidth: 200,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  toggleButton: {
+    paddingHorizontal: 16,
+    borderColor: colors.accent,
   },
   addButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    minWidth: 44,
+  },
+  tasksList: {
+    gap: 8,
   },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
+    paddingHorizontal: 20,
   },
   emptyText: {
     fontSize: 16,
@@ -261,5 +368,9 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     marginTop: 12,
     textAlign: 'center',
+    marginBottom: 16,
+  },
+  viewAllButton: {
+    borderColor: colors.accent,
   },
 });

@@ -1,11 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, StyleSheet, Modal, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { Task } from '../types';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  StyleSheet, 
+  Modal, 
+  Pressable, 
+  KeyboardAvoidingView, 
+  Platform, 
+  ScrollView,
+  Alert 
+} from 'react-native';
+import Button from './button';
 import { colors } from '../styles/commonStyles';
 import { IconSymbol } from './IconSymbol';
+import { Task } from '../types';
+import { useApp } from '../contexts/AppContext';
 import i18n from '../localization';
-import Button from './button';
 
 interface TaskEditorProps {
   visible: boolean;
@@ -22,145 +34,225 @@ export const TaskEditor: React.FC<TaskEditorProps> = ({
   onCancel,
   onDelete,
 }) => {
+  const { appState } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [scheduledTime, setScheduledTime] = useState('09:00');
+  const [assignedUsers, setAssignedUsers] = useState<string[]>([]);
 
   useEffect(() => {
     if (task) {
       setTitle(task.title);
       setDescription(task.description || '');
       setScheduledTime(task.scheduledTime);
+      setAssignedUsers(task.assignedUsers || []);
     } else {
       setTitle('');
       setDescription('');
       setScheduledTime('09:00');
+      setAssignedUsers([]);
     }
   }, [task, visible]);
 
   const handleSave = () => {
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      Alert.alert('Ошибка', 'Пожалуйста, введите название задачи');
+      return;
+    }
+
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(scheduledTime)) {
+      Alert.alert('Ошибка', 'Пожалуйста, введите корректное время в формате ЧЧ:ММ');
+      return;
+    }
 
     onSave({
       title: title.trim(),
-      description: description.trim(),
+      description: description.trim() || undefined,
       scheduledTime,
+      assignedUsers,
     });
   };
 
   const handleDelete = () => {
     if (task && onDelete) {
-      onDelete(task.id);
+      Alert.alert(
+        'Удалить задачу',
+        'Вы уверены, что хотите удалить эту задачу?',
+        [
+          { text: 'Отмена', style: 'cancel' },
+          {
+            text: 'Удалить',
+            style: 'destructive',
+            onPress: () => onDelete(task.id),
+          },
+        ]
+      );
     }
   };
 
-  const formatTime = (time: string) => {
-    // Ensure time is in HH:MM format
-    const cleaned = time.replace(/[^\d:]/g, '');
-    const parts = cleaned.split(':');
-    
-    if (parts.length === 1 && parts[0].length <= 2) {
-      return parts[0];
-    }
-    
-    if (parts.length === 2) {
-      const hours = parts[0].padStart(2, '0').slice(0, 2);
-      const minutes = parts[1].padStart(2, '0').slice(0, 2);
-      return `${hours}:${minutes}`;
-    }
-    
-    return time;
+  const toggleUserAssignment = (userId: string) => {
+    setAssignedUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
   };
 
-  const handleTimeChange = (text: string) => {
-    const formatted = formatTime(text);
-    setScheduledTime(formatted);
+  const generateTimeOptions = () => {
+    const options = [];
+    for (let hour = 0; hour < 24; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        options.push(timeString);
+      }
+    }
+    return options;
   };
+
+  const timeOptions = generateTimeOptions();
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onCancel}
-    >
-      <KeyboardAvoidingView
-        style={styles.container}
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <KeyboardAvoidingView 
+        style={styles.container} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
-          <View style={styles.header}>
-            <Pressable style={styles.cancelButton} onPress={onCancel}>
-              <IconSymbol name="xmark" size={20} color={colors.text} />
-            </Pressable>
-            <Text style={styles.title}>
-              {task ? i18n.t('editTask') : i18n.t('addTask')}
-            </Text>
-            <View style={styles.placeholder} />
-          </View>
+        <View style={styles.header}>
+          <Text style={styles.title}>
+            {task ? 'Редактировать задачу' : 'Новая задача'}
+          </Text>
+          <Pressable style={styles.closeButton} onPress={onCancel}>
+            <IconSymbol name="xmark" size={24} color={colors.text} />
+          </Pressable>
+        </View>
 
-          <View style={styles.content}>
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.form}>
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>{i18n.t('taskTitle')}</Text>
+              <Text style={styles.label}>Название задачи *</Text>
               <TextInput
                 style={styles.input}
+                placeholder="Введите название задачи"
+                placeholderTextColor={colors.text + '60'}
                 value={title}
                 onChangeText={setTitle}
-                placeholder={i18n.t('enterTaskTitle')}
-                placeholderTextColor={colors.text + '60'}
-                multiline={false}
-                returnKeyType="next"
+                multiline
+                maxLength={100}
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>{i18n.t('taskDescription')}</Text>
+              <Text style={styles.label}>Описание</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
+                placeholder="Введите описание задачи (необязательно)"
+                placeholderTextColor={colors.text + '60'}
                 value={description}
                 onChangeText={setDescription}
-                placeholder={i18n.t('enterTaskDescription')}
-                placeholderTextColor={colors.text + '60'}
                 multiline
                 numberOfLines={3}
-                textAlignVertical="top"
+                maxLength={300}
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>{i18n.t('scheduledTime')}</Text>
-              <TextInput
-                style={styles.timeInput}
-                value={scheduledTime}
-                onChangeText={handleTimeChange}
-                placeholder="09:00"
-                placeholderTextColor={colors.text + '60'}
-                keyboardType="numeric"
-                maxLength={5}
-              />
+              <Text style={styles.label}>Время выполнения *</Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                style={styles.timeSelector}
+                contentContainerStyle={styles.timeSelectorContent}
+              >
+                {timeOptions.map((time) => (
+                  <Pressable
+                    key={time}
+                    style={[
+                      styles.timeOption,
+                      scheduledTime === time && styles.timeOptionSelected,
+                    ]}
+                    onPress={() => setScheduledTime(time)}
+                  >
+                    <Text
+                      style={[
+                        styles.timeOptionText,
+                        scheduledTime === time && styles.timeOptionTextSelected,
+                      ]}
+                    >
+                      {time}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>
+                Назначить пользователей ({assignedUsers.length})
+              </Text>
+              <Text style={styles.helperText}>
+                Если никого не выбрать, задачу смогут выполнять все пользователи
+              </Text>
+              <View style={styles.usersList}>
+                {appState.users.filter(user => user.role !== 'viewer').map((user) => (
+                  <Pressable
+                    key={user.id}
+                    style={[
+                      styles.userItem,
+                      assignedUsers.includes(user.id) && styles.userItemSelected,
+                    ]}
+                    onPress={() => toggleUserAssignment(user.id)}
+                  >
+                    <View style={styles.userInfo}>
+                      <Text style={[
+                        styles.userName,
+                        assignedUsers.includes(user.id) && styles.userNameSelected,
+                      ]}>
+                        {user.name}
+                      </Text>
+                      <Text style={styles.userRole}>
+                        {user.role === 'admin' ? 'Администратор' : 'Пользователь'}
+                      </Text>
+                    </View>
+                    {assignedUsers.includes(user.id) && (
+                      <IconSymbol name="checkmark" size={20} color={colors.accent} />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
             </View>
           </View>
+        </ScrollView>
 
-          <View style={styles.buttonContainer}>
+        <View style={styles.footer}>
+          <View style={styles.buttonRow}>
+            <Button
+              onPress={onCancel}
+              variant="outline"
+              style={styles.cancelButton}
+            >
+              Отмена
+            </Button>
             <Button
               onPress={handleSave}
-              disabled={!title.trim()}
               style={styles.saveButton}
             >
-              {i18n.t('save')}
+              {task ? 'Сохранить' : 'Создать'}
             </Button>
-
-            {task && onDelete && (
-              <Button
-                onPress={handleDelete}
-                variant="outline"
-                style={styles.deleteButton}
-              >
-                {i18n.t('delete')}
-              </Button>
-            )}
           </View>
-        </ScrollView>
+          
+          {task && onDelete && (
+            <Button
+              onPress={handleDelete}
+              variant="outline"
+              style={styles.deleteButton}
+              textStyle={styles.deleteButtonText}
+            >
+              <IconSymbol name="trash" size={16} color="#FF5252" />
+              {' '}Удалить задачу
+            </Button>
+          )}
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -171,75 +263,140 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  scrollView: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: colors.grey + '30',
-  },
-  cancelButton: {
-    padding: 8,
+    borderBottomColor: colors.grey + '20',
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.text,
   },
-  placeholder: {
-    width: 36,
+  closeButton: {
+    padding: 8,
   },
   content: {
+    flex: 1,
+  },
+  form: {
     padding: 20,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   label: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.text,
     marginBottom: 8,
   },
+  helperText: {
+    fontSize: 14,
+    color: colors.text,
+    opacity: 0.7,
+    marginBottom: 12,
+  },
   input: {
     backgroundColor: colors.backgroundAlt,
-    borderWidth: 1,
-    borderColor: colors.grey + '30',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
     color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.grey + '30',
+    minHeight: 50,
   },
   textArea: {
     minHeight: 80,
-    paddingTop: 12,
+    textAlignVertical: 'top',
   },
-  timeInput: {
+  timeSelector: {
+    maxHeight: 50,
+  },
+  timeSelectorContent: {
+    paddingRight: 20,
+  },
+  timeOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginRight: 8,
+    borderRadius: 8,
     backgroundColor: colors.backgroundAlt,
     borderWidth: 1,
     borderColor: colors.grey + '30',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    width: 100,
-    textAlign: 'center',
   },
-  buttonContainer: {
+  timeOptionSelected: {
+    backgroundColor: colors.accent + '20',
+    borderColor: colors.accent,
+  },
+  timeOptionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  timeOptionTextSelected: {
+    color: colors.accent,
+  },
+  usersList: {
+    gap: 8,
+  },
+  userItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.backgroundAlt,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.grey + '30',
+  },
+  userItemSelected: {
+    backgroundColor: colors.accent + '10',
+    borderColor: colors.accent,
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  userNameSelected: {
+    color: colors.accent,
+  },
+  userRole: {
+    fontSize: 14,
+    color: colors.text,
+    opacity: 0.7,
+    marginTop: 2,
+  },
+  footer: {
     padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: colors.grey + '20',
+  },
+  buttonRow: {
+    flexDirection: 'row',
     gap: 12,
+    marginBottom: 12,
+  },
+  cancelButton: {
+    flex: 1,
   },
   saveButton: {
-    backgroundColor: colors.accent,
+    flex: 1,
   },
   deleteButton: {
-    borderColor: colors.accent,
+    borderColor: '#FF5252',
+  },
+  deleteButtonText: {
+    color: '#FF5252',
   },
 });

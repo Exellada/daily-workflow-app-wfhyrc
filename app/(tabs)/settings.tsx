@@ -1,15 +1,17 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { useApp } from '@/contexts/AppContext';
 import { RoleSwitcher } from '@/components/RoleSwitcher';
+import { UserManagement } from '@/components/UserManagement';
 import { colors, commonStyles } from '@/styles/commonStyles';
 import { IconSymbol } from '@/components/IconSymbol';
 import i18n from '@/localization';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SettingsScreen() {
-  const { appState } = useApp();
+  const { appState, logout } = useApp();
+  const [showUserManagement, setShowUserManagement] = useState(false);
 
   const handleClearData = () => {
     Alert.alert(
@@ -34,21 +36,41 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Выйти из системы',
+      'Вы уверены, что хотите выйти?',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        { text: 'Выйти', style: 'destructive', onPress: logout },
+      ]
+    );
+  };
+
   const SettingItem: React.FC<{
     icon: string;
     title: string;
     subtitle?: string;
     onPress?: () => void;
     rightElement?: React.ReactNode;
-  }> = ({ icon, title, subtitle, onPress, rightElement }) => (
+    danger?: boolean;
+  }> = ({ icon, title, subtitle, onPress, rightElement, danger = false }) => (
     <Pressable style={styles.settingItem} onPress={onPress}>
       <View style={styles.settingLeft}>
-        <View style={styles.iconContainer}>
-          <IconSymbol name={icon as any} size={20} color={colors.text} />
+        <View style={[styles.iconContainer, danger && styles.dangerIconContainer]}>
+          <IconSymbol 
+            name={icon as any} 
+            size={20} 
+            color={danger ? '#FF5252' : colors.text} 
+          />
         </View>
         <View style={styles.settingText}>
-          <Text style={styles.settingTitle}>{title}</Text>
-          {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+          <Text style={[styles.settingTitle, danger && styles.dangerText]}>
+            {title}
+          </Text>
+          {subtitle && (
+            <Text style={styles.settingSubtitle}>{subtitle}</Text>
+          )}
         </View>
       </View>
       {rightElement || (
@@ -65,15 +87,42 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Пользователь</Text>
+          <Text style={styles.sectionTitle}>Текущий пользователь</Text>
           
           <SettingItem
-            icon="person.circle"
-            title="Текущая роль"
-            subtitle={appState.currentUser.name}
+            icon="person.circle.fill"
+            title={appState.currentUser.name}
+            subtitle={`Роль: ${appState.currentUser.role === 'admin' ? 'Администратор' : 
+                      appState.currentUser.role === 'user' ? 'Пользователь' : 'Наблюдатель'}`}
+          />
+
+          <SettingItem
+            icon="arrow.triangle.2.circlepath"
+            title="Переключить роль"
+            subtitle="Временно изменить роль для тестирования"
             rightElement={<RoleSwitcher />}
           />
+
+          <SettingItem
+            icon="rectangle.portrait.and.arrow.right"
+            title="Выйти из системы"
+            subtitle="Вернуться к экрану входа"
+            onPress={handleLogout}
+          />
         </View>
+
+        {appState.currentUser.role === 'admin' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Управление</Text>
+            
+            <SettingItem
+              icon="person.2"
+              title="Управление пользователями"
+              subtitle={`${appState.users.length} пользователей в системе`}
+              onPress={() => setShowUserManagement(true)}
+            />
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Статистика</Text>
@@ -95,6 +144,12 @@ export default function SettingsScreen() {
             title="Последний сброс"
             subtitle={new Date(appState.lastResetDate).toLocaleDateString('ru-RU')}
           />
+
+          <SettingItem
+            icon="person.2.fill"
+            title="Активные пользователи"
+            subtitle={`${appState.users.filter(u => u.role !== 'viewer').length} пользователей могут выполнять задачи`}
+          />
         </View>
 
         <View style={styles.section}>
@@ -111,28 +166,45 @@ export default function SettingsScreen() {
             title="Время сброса"
             subtitle="Чек-лист сбрасывается каждый день в 23:00"
           />
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Данные</Text>
-          
           <SettingItem
-            icon="trash"
-            title="Очистить все данные"
-            subtitle="Удалить все задачи и настройки"
-            onPress={handleClearData}
+            icon="lock.shield"
+            title="Безопасность"
+            subtitle="Аутентификация пользователей с паролями"
           />
         </View>
+
+        {appState.currentUser.role === 'admin' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Опасная зона</Text>
+            
+            <SettingItem
+              icon="trash"
+              title="Очистить все данные"
+              subtitle="Удалить все задачи, пользователей и настройки"
+              onPress={handleClearData}
+              danger
+            />
+          </View>
+        )}
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             Приложение для управления рабочим процессом
           </Text>
           <Text style={styles.footerText}>
-            Синхронизация данных происходит автоматически
+            Данные сохраняются локально на устройстве
+          </Text>
+          <Text style={styles.footerText}>
+            Версия 1.0 • Поддержка пользователей и ролей
           </Text>
         </View>
       </ScrollView>
+
+      <UserManagement
+        visible={showUserManagement}
+        onClose={() => setShowUserManagement(false)}
+      />
     </View>
   );
 }
@@ -187,6 +259,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
+  dangerIconContainer: {
+    backgroundColor: '#FF5252' + '20',
+  },
   settingText: {
     flex: 1,
   },
@@ -194,6 +269,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: colors.text,
+  },
+  dangerText: {
+    color: '#FF5252',
   },
   settingSubtitle: {
     fontSize: 14,
